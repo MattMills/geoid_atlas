@@ -10,6 +10,7 @@ cargo test --locked --doc
 cargo run --locked --example terrain_atlas
 cargo run --locked --example hour_array
 cargo run --locked --example recursive_tracking
+cargo run --locked --example kiwi_observability
 ```
 
 Rust 1.99.0 is pinned in `rust-toolchain.toml`. All examples and tests work offline once the toolchain is installed.
@@ -28,6 +29,8 @@ Rust 1.99.0 is pinned in `rust-toolchain.toml`. All examples and tests work offl
 | `atlas` | Body/source/quantity/time/band-scoped fields, provenance, observation/model separation, uncertainty fusion with explicit error-lineage groups, DEM/geoid site placement, DRG sampling |
 | `spacetime` | Constant-acceleration and C1 Hermite worldpaths, retarded transmitter-target-receiver paths, coherent integration, channel-specific profile likelihood, Gaussian state priors, joint likelihood blocks, bounded six-parameter local trajectory refinement |
 | `estimation` | Full 6×6 state covariance, spin-aware frame uncertainty transforms, white-acceleration prediction, scalar EKF/Joseph updates, innovation gating, unique observation IDs, retarded timing Jacobians, Rauch–Tung–Striebel historical smoothing |
+| `calibration` | Joint receiver frequency-scale/offset and transmitter-offset fitting, explicit reference gauge, sparse-cell rank checks, pivoted QR, conditional full parameter covariance |
+| `observability` | Clock/dispersive phase basis separability, explicit one-way/monostatic bandwidth cells, conditional nominal frequency ambiguity lattice |
 
 Angles at geodetic boundaries are degrees; rotations and phase are radians. Spatial coordinates are metres, velocities m/s, gravitational parameters m³/s². RF power APIs distinguish watts and dBm. `Geodetic::new(latitude, longitude, height)` uses ellipsoidal height; raster geographic axes are **longitude, latitude**. `Ecef` is Earth-fixed by convention; a generic ellipsoid returns the same Cartesian container in that body's fixed axes.
 
@@ -98,6 +101,8 @@ For historical reconstruction, retain one final filtered state per distinct epoc
 Run `recursive_tracking` for a reproducible example: 366 noisy bistatic timing observations over an hour, one injected outlier, a six-state recursive estimate, and historical smoothing. In the supplied synthetic local inertial scene, position RMS improves from approximately **1.862 m filtered to 0.857 m smoothed**, and the outlier is rejected. This validates the implementation under its stated Gaussian/independent-noise model; it is not a measured instrument performance claim.
 
 ## Source-backed atlas
+
+The [KiwiSDR report case](docs/kiwi_case.md) maps an actual user-provided solve to clock calibration, lag ambiguity, propagation and source-coverage requirements. `kiwi_observability` checks its frequency plan and can audit the local synthesis geometry table. Summary reports are not substituted for the unavailable timestamped observations, and the attachments are not copied into this repository.
 
 Register a body and source before adding a field. Every source has a citation/URI/model specification, an observation-or-model label, and an independence-group identifier. Every layer belongs to one body and quantity, with optional validity bounds. RF power fields include an exact frequency band. Body coordinates, vertical references, frequencies, and data lineage are not merged implicitly.
 

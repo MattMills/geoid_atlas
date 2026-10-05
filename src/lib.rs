@@ -22,11 +22,13 @@
 //! ```
 
 pub mod atlas;
+pub mod calibration;
 pub mod coordinates;
 pub mod estimation;
 pub mod frames;
 pub mod gravity;
 pub mod interferometry;
+pub mod observability;
 pub mod raster;
 pub mod rf;
 pub mod spacetime;
