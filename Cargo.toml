@@ -10,6 +10,8 @@ name = "geoid_atlas"
 path = "src/lib.rs"
 
 [dependencies]
+# Karney geodesics; polygon-area compensated accumulation is not needed here.
+geographiclib-rs = { version = "0.2.7", default-features = false }
 
 [features]
 default = []

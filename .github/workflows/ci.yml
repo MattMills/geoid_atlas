@@ -19,6 +19,7 @@ jobs:
       - run: cargo run --locked --example recursive_tracking
       - run: cargo run --locked --example kiwi_observability
       - run: cargo run --locked --example polar_fusion
+      - run: cargo run --locked --example ground_paths
   native:
     runs-on: ubuntu-24.04
     env:
