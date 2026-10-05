@@ -23,6 +23,7 @@
 
 pub mod atlas;
 pub mod coordinates;
+pub mod estimation;
 pub mod frames;
 pub mod gravity;
 pub mod interferometry;

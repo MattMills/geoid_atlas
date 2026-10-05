@@ -279,6 +279,21 @@ impl Pose {
             ),
         }
     }
+    /// Inverse rigid kinematic transform, including origin and angular velocity.
+    pub fn inverse(self) -> Self {
+        let inverse_rotation = self.rotation.inverse();
+        Self {
+            origin: State {
+                position_m: inverse_rotation.apply(-self.origin.position_m),
+                velocity_m_s: inverse_rotation.apply(
+                    self.angular_velocity_rad_s.cross(self.origin.position_m)
+                        - self.origin.velocity_m_s,
+                ),
+            },
+            rotation: inverse_rotation,
+            angular_velocity_rad_s: -inverse_rotation.apply(self.angular_velocity_rad_s),
+        }
+    }
     fn compose(self, child: Self) -> Self {
         Self {
             origin: self.apply(child.origin),
@@ -508,6 +523,14 @@ impl FrameGraph {
     ) -> Result<State> {
         state.position_m.validate()?;
         state.velocity_m_s.validate()?;
+        let result = self.relative_pose(from, to, epoch)?.apply(state);
+        result.position_m.validate()?;
+        result.velocity_m_s.validate()?;
+        Ok(result)
+    }
+    /// Deterministic pose from one frame to another at a common coordinate time.
+    /// Shared parent translations cancel before reaching a distant inertial root.
+    pub fn relative_pose(&self, from: FrameId, to: FrameId, epoch: Epoch) -> Result<Pose> {
         // Traverse only to the lowest common ancestor. Shared astronomical
         // translations cancel symbolically, preserving small local baselines.
         let mut from_path = vec![from];
@@ -527,24 +550,23 @@ impl FrameGraph {
         }
         self.node(current)?;
         let common = current;
-        let mut result = state;
+        let mut source_pose = Pose::IDENTITY;
         current = from;
         while current != common {
             let node = self.node(current)?;
-            result = node.provider.pose(epoch)?.validate()?.apply(result);
+            source_pose = node.provider.pose(epoch)?.validate()?.compose(source_pose);
             current = node.parent.expect("validated ancestor path");
         }
-        for id in to_path.iter().rev() {
-            result = self
+        let mut target_pose = Pose::IDENTITY;
+        for id in &to_path {
+            target_pose = self
                 .node(*id)?
                 .provider
                 .pose(epoch)?
                 .validate()?
-                .unapply(result);
+                .compose(target_pose);
         }
-        result.position_m.validate()?;
-        result.velocity_m_s.validate()?;
-        Ok(result)
+        target_pose.inverse().compose(source_pose).validate()
     }
 }
 

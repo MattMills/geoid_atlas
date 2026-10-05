@@ -11,5 +11,9 @@ jobs:
       - run: cargo clippy --locked --all-targets -- -D warnings
       - run: cargo test --locked --all-targets
       - run: cargo test --locked --doc
+      - run: cargo doc --locked --no-deps
+        env:
+          RUSTDOCFLAGS: "-D warnings"
       - run: cargo run --locked --example hour_array
       - run: cargo run --locked --example terrain_atlas
+      - run: cargo run --locked --example recursive_tracking

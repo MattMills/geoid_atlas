@@ -2,13 +2,14 @@
 
 A Rust library for body-scoped geospatial data and time-dependent interferometric forward models. It supports subsurface sites, surface stations, orbiting arrays, and multiple planetary/star systems beneath a common reference frame.
 
-This initial implementation is a working, dependency-free modeling foundation. It includes a local trajectory fitter and synthetic examples; it does not ship measured global datasets, a precision astronomical ephemeris, or an operational real-time sensor pipeline.
+This implementation is a working, dependency-free modeling foundation. It includes local trajectory fitting, recursive state estimation with full covariance, historical smoothing, and synthetic examples. It does not ship measured global datasets, a precision astronomical ephemeris, or an operational real-time sensor pipeline.
 
 ```sh
 cargo test --locked --all-targets
 cargo test --locked --doc
 cargo run --locked --example terrain_atlas
 cargo run --locked --example hour_array
+cargo run --locked --example recursive_tracking
 ```
 
 Rust 1.99.0 is pinned in `rust-toolchain.toml`. All examples and tests work offline once the toolchain is installed.
@@ -26,6 +27,7 @@ Rust 1.99.0 is pinned in `rust-toolchain.toml`. All examples and tests work offl
 | `interferometry` | Signed near-/far-field delay, UVW baseline, delay rate, moving-receiver light time, clock polynomial, Gaussian coherence, special-relativistic Doppler, weak-field Shapiro term, spherical occultation check |
 | `atlas` | Body/source/quantity/time/band-scoped fields, provenance, observation/model separation, uncertainty fusion with explicit error-lineage groups, DEM/geoid site placement, DRG sampling |
 | `spacetime` | Constant-acceleration and C1 Hermite worldpaths, retarded transmitter-target-receiver paths, coherent integration, channel-specific profile likelihood, Gaussian state priors, joint likelihood blocks, bounded six-parameter local trajectory refinement |
+| `estimation` | Full 6×6 state covariance, spin-aware frame uncertainty transforms, white-acceleration prediction, scalar EKF/Joseph updates, innovation gating, unique observation IDs, retarded timing Jacobians, Rauch–Tung–Striebel historical smoothing |
 
 Angles at geodetic boundaries are degrees; rotations and phase are radians. Spatial coordinates are metres, velocities m/s, gravitational parameters m³/s². RF power APIs distinguish watts and dBm. `Geodetic::new(latitude, longitude, height)` uses ellipsoidal height; raster geographic axes are **longitude, latitude**. `Ecef` is Earth-fixed by convention; a generic ellipsoid returns the same Cartesian container in that body's fixed axes.
 
@@ -75,9 +77,25 @@ flowchart LR
 
 RF and genuinely phase-linked optical fields can be integrated coherently **within a calibrated channel**. Unrelated RF transmitters are not phase-linked merely because their positions are known. X-ray photon counts, optical astrometry, weather observations, and other modalities need their own likelihoods. `NegativeLogLikelihood`, `JointLikelihood`, and `poisson_count_cost` provide the composition points. Represent a measurement once; transforming it into multiple frames creates equivalent descriptions, not independent evidence. Blocks sharing clocks, weather errors, or survey lineage need a joint covariance/calibration model within one independence group.
 
-`refine_trajectory` searches bounded position/velocity neighborhoods in progressively smaller steps. It fits six parameters with fixed acceleration; arbitrary higher-dimensional models can implement their own optimizer using the likelihood interface. `LocalCell` bounds a local spacetime neighborhood. Warm-start successive windows from the last fit and use `GaussianStatePrior` with appropriate process-noise inflation. This is **not** an automatic recursive Bayesian filter, posterior covariance estimator, full-history smoother, global optimizer, or phase-ambiguity resolver. Changing reflectivity calls for shorter windows or a more expressive reflectivity model.
+`refine_trajectory` searches bounded position/velocity neighborhoods in progressively smaller steps. It fits six parameters with fixed acceleration; arbitrary higher-dimensional models can implement their own optimizer using the likelihood interface. `LocalCell` bounds a local spacetime neighborhood. Warm-start successive windows from the last fit and use `GaussianStatePrior` with appropriate process-noise inflation. That local search does not estimate posterior covariance or resolve global phase ambiguities. For Gaussian recursive estimation and historical smoothing, use the separate `estimation` module described below. Changing reflectivity calls for shorter windows or a more expressive reflectivity model.
 
 A real-time deployment still needs calibrated acquisition adapters, buffers with unique observation IDs, clock/ephemeris uncertainty, channel response and target reflectivity models, robust maneuver handling, and runtime throughput validation. No raw acquisition, historical archive, or weather service is fetched implicitly.
+
+## Recursive estimation and historical worldpaths
+
+`TrackState` carries an epoch, a Cartesian position/velocity mean, and a full covariance in the order `[x, y, z, vx, vy, vz]`. Position/velocity and cross-axis correlations are preserved. `Covariance6` validates finite, symmetric, positive-semidefinite inputs using normalized correlations to handle mixed units; the numerical PSD tolerance is 1e-12 in correlation space. Internal symmetric covariance calculations remove floating-point antisymmetry before validation.
+
+`TrackState::predict` uses a local constant-velocity process with continuous white acceleration. Its process-noise inputs are **spectral densities in m²/s³**, not acceleration standard deviations. The resulting covariance includes the dt³/3 position, dt²/2 cross, and dt velocity terms. Use sufficiently local intervals and a nonrotating tracking frame. This process is not an orbital force integrator; a long arc with strong gravitational curvature needs an appropriate dynamics model, not just a coordinate transform.
+
+`MeasurementModel` supplies one scalar prediction, its six-state Jacobian, and measurement noise. `LinearMeasurement` covers exact linear Cartesian observables. `BistaticDelayMeasurement` linearizes the retarded transmitter-target-receiver path about the predicted state, with a locally constant-velocity target and explicit known timing offset. Its central-difference steps must exceed local coordinate/solver precision. The model assimilates **absolute, calibrated timing**; it does not resolve a wrapped carrier-phase ambiguity. Combine the coherent trajectory likelihood for that search with timing constraints as appropriate.
+
+`RecursiveTracker::assimilate` predicts to the measurement epoch and performs a Joseph-form EKF covariance update. An optional squared normalized innovation gate rejects outliers. Duplicate observation IDs and out-of-order epochs are rejected. An unsuccessful operation leaves the tracker unchanged; a gated outlier consumes its ID and advances only the process prediction. IDs are retained for the lifetime of the tracker; a production archive needs an explicit checkpoint/deduplication policy. Simultaneous measurements can be processed at the same epoch, provided their noise is conditionally independent or has been decorrelated. Shared clock, ephemeris, or atmospheric biases are not absorbed automatically into the six target-state variables.
+
+`TrackState::transform` carries the full covariance between frames using the deterministic pose Jacobian, including the spin-induced position/velocity coupling. Frame/clock model uncertainty must be handled separately. Transforming a posterior for presentation does not supply another measurement or justify predicting with the same dynamics in a rotating frame.
+
+For historical reconstruction, retain one final filtered state per distinct epoch and the prior at each next epoch **before** its first observation. Pass those to `smooth_history`. The Rauch–Tung–Striebel backward pass uses later information to update earlier means and covariance without assimilating the same data twice. Prediction covariances must be positive definite; inconsistent timestamps, singular predictions, and incompatible mean transitions are rejected. The smoother uses the same constant-velocity dynamics as the filter. `mean_worldpath` constructs a C1 Hermite path through the smoothed means; covariance remains at the knots and is not silently interpolated.
+
+Run `recursive_tracking` for a reproducible example: 366 noisy bistatic timing observations over an hour, one injected outlier, a six-state recursive estimate, and historical smoothing. In the supplied synthetic local inertial scene, position RMS improves from approximately **1.862 m filtered to 0.857 m smoothed**, and the outlier is rejected. This validates the implementation under its stated Gaussian/independent-noise model; it is not a measured instrument performance claim.
 
 ## Source-backed atlas
 
@@ -100,6 +118,6 @@ Fusion uses inverse variance between declared independent Gaussian estimates. Wi
 
 ## Validation
 
-The tests cover geodetic round trips including polar/orbital/subsurface points, an external UTM control point, frame velocity/rotation, local precision beneath an interstellar parent, orbital energy, DEM/nodata parsing, gravity, radio/material/weather models, retarded event times, clock and phase signs, time-scale guards, coherent gain, trajectory discrimination, bounded refinement, and atlas evidence isolation. The examples exercise complete modeling workflows without network access.
+The tests cover geodetic round trips including polar/orbital/subsurface points, an external UTM control point, frame velocity/rotation, local precision beneath an interstellar parent, orbital energy, DEM/nodata parsing, gravity, radio/material/weather models, retarded event times, clock and phase signs, time-scale guards, coherent gain, trajectory discrimination, bounded refinement, and atlas evidence isolation. Estimation tests check analytic Kalman/RTS posteriors, full covariance validation, spin coupling, cross-axis updates, outlier/duplicate handling, transactional failures, and retarded timing derivatives. CI also runs the complete synthetic tracking example and its numerical assertions. The examples exercise modeling workflows without network access.
 
 MIT license. Crate import: `geoid_atlas`.
