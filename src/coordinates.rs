@@ -1,5 +1,7 @@
 //! WGS84 geodetic, Earth-centred Earth-fixed, local ENU, Web Mercator, and UTM.
+use crate::frames::Vec3;
 use crate::{Error, Result, finite};
+use std::ops::{Add, Div, Mul, Sub};
 
 pub const WGS84_A: f64 = 6_378_137.0;
 pub const WGS84_F: f64 = 1.0 / 298.257_223_563;
@@ -34,6 +36,35 @@ impl Ellipsoid {
     }
     pub fn flattening(self) -> f64 {
         self.flattening
+    }
+    /// Surface radii at geodetic latitude; height and longitude are ignored.
+    /// These are local normal-section curvatures, not global ray-path lengths.
+    pub fn curvature_radii(self, point: Geodetic) -> Result<CurvatureRadii> {
+        let (sin_lat, cos_lat) = point.lat.to_radians().sin_cos();
+        let axis_ratio = 1.0 - self.flattening;
+        // Avoid 1 - e² sin²(lat) cancellation on very flattened ellipsoids.
+        let q = cos_lat.hypot(axis_ratio * sin_lat);
+        let prime_vertical_m = self.a / q;
+        let meridional_m = prime_vertical_m * (axis_ratio / q).powi(2);
+        if !prime_vertical_m.is_finite() || !meridional_m.is_finite() || meridional_m <= 0.0 {
+            return Err(Error::InvalidInput(
+                "curvature exceeds numerical range".into(),
+            ));
+        }
+        Ok(CurvatureRadii {
+            meridional_m,
+            prime_vertical_m,
+        })
+    }
+    pub fn meridional_radius_m(self, point: Geodetic) -> Result<f64> {
+        Ok(self.curvature_radii(point)?.meridional_m)
+    }
+    pub fn prime_vertical_radius_m(self, point: Geodetic) -> Result<f64> {
+        Ok(self.curvature_radii(point)?.prime_vertical_m)
+    }
+    /// Euler normal-section radius at an azimuth clockwise from north.
+    pub fn radius_along_azimuth_m(self, point: Geodetic, azimuth_deg: f64) -> Result<f64> {
+        self.curvature_radii(point)?.along_azimuth_m(azimuth_deg)
     }
     pub fn to_cartesian(self, point: Geodetic) -> Ecef {
         let e2 = self.flattening * (2.0 - self.flattening);
@@ -82,6 +113,30 @@ impl Ellipsoid {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
+pub struct CurvatureRadii {
+    meridional_m: f64,
+    prime_vertical_m: f64,
+}
+impl CurvatureRadii {
+    /// Radius of the north/south meridian section, in metres.
+    pub fn meridional_m(self) -> f64 {
+        self.meridional_m
+    }
+    /// Radius of the east/west prime-vertical section, in metres.
+    pub fn prime_vertical_m(self) -> f64 {
+        self.prime_vertical_m
+    }
+    /// Euler's formula: 1/R = cos²(azimuth)/M + sin²(azimuth)/N.
+    pub fn along_azimuth_m(self, azimuth_deg: f64) -> Result<f64> {
+        finite(azimuth_deg, "curvature azimuth")?;
+        let (sin_az, cos_az) = azimuth_deg.to_radians().sin_cos();
+        // Scaled harmonic mean avoids reciprocal under/overflow.
+        let ratio = self.meridional_m / self.prime_vertical_m;
+        Ok(self.meridional_m / (cos_az * cos_az + ratio * sin_az * sin_az))
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Geodetic {
     lat: f64,
     lon: f64,
@@ -98,9 +153,33 @@ impl Geodetic {
         }
         Ok(Self {
             lat: latitude_deg,
-            lon: (longitude_deg + 180.0).rem_euclid(360.0) - 180.0,
+            lon: if (-180.0..180.0).contains(&longitude_deg) {
+                longitude_deg
+            } else {
+                (longitude_deg + 180.0).rem_euclid(360.0) - 180.0
+            },
             height: ellipsoidal_height_m,
         })
+    }
+    /// Plain constructor for callers that have already validated their inputs.
+    /// Validation is still enforced; invalid latitude or nonfinite input panics.
+    /// Use `new` for data read from files, users or sensing feeds.
+    ///
+    /// # Panics
+    /// Panics if the inputs do not satisfy `Geodetic::new`'s contract.
+    pub fn from_validated(
+        latitude_deg: f64,
+        longitude_deg: f64,
+        ellipsoidal_height_m: f64,
+    ) -> Self {
+        Self::new(latitude_deg, longitude_deg, ellipsoidal_height_m)
+            .expect("prevalidated geodetic coordinate")
+    }
+    /// WGS84 surface curvatures for this validated latitude; height is ignored.
+    pub fn curvature_radii(self) -> CurvatureRadii {
+        Ellipsoid::WGS84
+            .curvature_radii(self)
+            .expect("finite WGS84 curvature")
     }
     pub fn latitude_deg(self) -> f64 {
         self.lat
@@ -132,6 +211,79 @@ pub struct Ecef {
     pub x: f64,
     pub y: f64,
     pub z: f64,
+}
+
+/// Representation conversion only; finite-value validation remains the consumer's responsibility.
+impl From<[f64; 3]> for Ecef {
+    fn from([x, y, z]: [f64; 3]) -> Self {
+        Self { x, y, z }
+    }
+}
+impl From<Ecef> for [f64; 3] {
+    fn from(point: Ecef) -> Self {
+        [point.x, point.y, point.z]
+    }
+}
+impl From<Vec3> for Ecef {
+    fn from(vector: Vec3) -> Self {
+        Self {
+            x: vector.x,
+            y: vector.y,
+            z: vector.z,
+        }
+    }
+}
+impl From<Ecef> for Vec3 {
+    fn from(point: Ecef) -> Self {
+        Self {
+            x: point.x,
+            y: point.y,
+            z: point.z,
+        }
+    }
+}
+/// Difference of positions is a displacement vector.
+impl Sub for Ecef {
+    type Output = Vec3;
+    fn sub(self, other: Self) -> Vec3 {
+        Vec3::from(self) - Vec3::from(other)
+    }
+}
+impl Add<Vec3> for Ecef {
+    type Output = Self;
+    fn add(self, displacement: Vec3) -> Self {
+        (Vec3::from(self) + displacement).into()
+    }
+}
+/// Cartesian component sum, useful for weighted/chord averages. This is not a
+/// surface-geodesic midpoint; use `geodesics::GeodesicPath` for that operation.
+impl Add for Ecef {
+    type Output = Self;
+    fn add(self, other: Self) -> Self {
+        (Vec3::from(self) + Vec3::from(other)).into()
+    }
+}
+impl Sub<Vec3> for Ecef {
+    type Output = Self;
+    fn sub(self, displacement: Vec3) -> Self {
+        (Vec3::from(self) - displacement).into()
+    }
+}
+impl Mul<f64> for Ecef {
+    type Output = Self;
+    fn mul(self, scale: f64) -> Self {
+        (Vec3::from(self) * scale).into()
+    }
+}
+impl Div<f64> for Ecef {
+    type Output = Self;
+    fn div(self, scale: f64) -> Self {
+        Self {
+            x: self.x / scale,
+            y: self.y / scale,
+            z: self.z / scale,
+        }
+    }
 }
 
 impl Ecef {
