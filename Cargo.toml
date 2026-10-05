@@ -1,0 +1,12 @@
+[package]
+name = "geoid-atlas"
+version = "0.1.0"
+edition = "2024"
+description = "Coordinates, geospatial rasters, gravity, and probabilistic RF atlas models"
+license = "MIT"
+
+[lib]
+name = "geoid_atlas"
+path = "src/lib.rs"
+
+[dependencies]
