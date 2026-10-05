@@ -13,6 +13,17 @@ pub struct Vec3 {
     pub y: f64,
     pub z: f64,
 }
+/// Representation conversion only; use `validate` at physical-model boundaries.
+impl From<[f64; 3]> for Vec3 {
+    fn from([x, y, z]: [f64; 3]) -> Self {
+        Self { x, y, z }
+    }
+}
+impl From<Vec3> for [f64; 3] {
+    fn from(vector: Vec3) -> Self {
+        [vector.x, vector.y, vector.z]
+    }
+}
 impl Vec3 {
     pub const ZERO: Self = Self {
         x: 0.0,

@@ -2,7 +2,7 @@
 
 A Rust library for body-scoped geospatial data and time-dependent interferometric forward models. It supports subsurface sites, surface stations, orbiting arrays, and multiple planetary/star systems beneath a common reference frame.
 
-This implementation is a working, dependency-free modeling foundation. It includes local trajectory fitting, recursive state estimation with full covariance, historical smoothing, and synthetic examples. It does not ship measured global datasets, a precision astronomical ephemeris, or an operational real-time sensor pipeline.
+This implementation is a working, pure Rust modeling foundation. It includes local trajectory fitting, recursive state estimation with full covariance, historical smoothing, Karney surface geodesics, and synthetic examples. Geodesics use the MIT-licensed `geographiclib-rs` crate; no native GIS library is required. It does not ship measured global datasets, a precision astronomical ephemeris, or an operational real-time sensor pipeline.
 
 ```sh
 cargo test --locked --all-targets
@@ -12,15 +12,18 @@ cargo run --locked --example hour_array
 cargo run --locked --example recursive_tracking
 cargo run --locked --example kiwi_observability
 cargo run --locked --example polar_fusion
+cargo run --locked --example ground_paths
 ```
 
-Rust 1.99.0 is pinned in `rust-toolchain.toml`. All examples and tests work offline once the toolchain is installed.
+Rust 1.99.0 is pinned in `rust-toolchain.toml`. All examples and tests work offline once the toolchain and locked Cargo dependencies are installed (`cargo fetch --locked`).
 
 ## Implemented models
 
 | Module | Capabilities |
 | --- | --- |
-| `coordinates` | Configurable oblate ellipsoids, WGS84 geodetic/ECEF/ENU, Web Mercator, explicit UTM zones/hemispheres, planetary longitude/latitude |
+| `coordinates` | Configurable oblate ellipsoids, WGS84 geodetic/ECEF/ENU, local meridional/prime-vertical/azimuth curvatures, Web Mercator, explicit UTM zones/hemispheres, planetary longitude/latitude |
+| `geodesics` | Karney inverse/direct, forward azimuths, shortest-path interpolation and surface midpoint; WGS84 ground distance and mean-radius spherical great-circle distance |
+| `maidenhead` | Strict case-insensitive locator decoding (2–12 characters), geodetic centres, full cell bounds and explicitly uniform-cell tangent uncertainty |
 | `frames` | Position/velocity transforms including spin; timestamped frame trees; arbitrary bodies/star systems; linear motion and bound Kepler orbits; `PoseProvider` ephemeris/orientation adapters |
 | `time` | Split Julian dates and epochs; explicit TAI, TT, TDB, TCB references; exact conventional TAI/TT offset |
 | `raster` | Georeferenced DEMs and RGB DRGs, rotated affine maps, nearest/bilinear sampling, nodata/coverage checks, ESRI ASCII ingestion, explicit vertical datums |
@@ -43,6 +46,72 @@ Rust 1.99.0 is pinned in `rust-toolchain.toml`. All examples and tests work offl
 Angles at geodetic boundaries are degrees; rotations and phase are radians. Spatial coordinates are metres, velocities m/s, gravitational parameters m³/s². RF power APIs distinguish watts and dBm. `Geodetic::new(latitude, longitude, height)` uses ellipsoidal height; raster geographic axes are **longitude, latitude**. `Ecef` is Earth-fixed by convention; a generic ellipsoid returns the same Cartesian container in that body's fixed axes.
 
 [Extreme scenarios and input contracts](docs/extreme_scenarios.md) covers mixed terrestrial datums, Earth/Moon/Mars spacecraft chains, subsurface ice sounding, coherent asteroid echoes, interstellar precision, polar weather/GNSS/ionosonde fusion, X-ray transients, file formats and historical reprocessing. `polar_fusion` exercises a synthetic moving-frame multimodal likelihood with plasma and magnetic providers. Environmental parameters are conditioned inputs; a full joint environmental inversion needs a larger hypothesis/optimizer.
+
+## Ground paths and FT8 coordinates
+
+`geodesics::ground_distance_m(a, b)` returns the exact WGS84 ellipsoidal surface
+distance through Karney's inverse solution, including near-antipodal pairs. It
+replaces a Lambert approximation intentionally; check calibration differences
+when porting. `great_circle_m(a, b)` preserves the conventional sphere with
+**R = 6,371,008.8 m**, using geodetic latitude as spherical latitude. Neither
+function includes height, terrain, atmospheric propagation or ionospheric hops.
+
+```rust
+use geoid_atlas::coordinates::Geodetic;
+use geoid_atlas::geodesics::{SurfaceGeodesic, ground_distance_m};
+use geoid_atlas::maidenhead::MaidenheadCell;
+
+let grid: MaidenheadCell = "IO91wm".parse()?;
+let a = grid.centre();
+let b = Geodetic::new(-41.3, 174.78, 0.0)?;
+let path = SurfaceGeodesic::wgs84().path(a, b);
+let distance = ground_distance_m(a, b);
+let midpoint = path.midpoint();
+let quarter_point = path.point_at_fraction(0.25)?;
+let heading = path.inverse().initial_azimuth_deg;
+let radius = midpoint.curvature_radii().along_azimuth_m(
+    path.position(distance / 2.0)?.final_azimuth_deg,
+)?;
+# Ok::<(), geoid_atlas::Error>(())
+```
+
+`SurfaceGeodesic::new(ellipsoid)` handles spheres and oblate planets with
+flattening <= 0.02. Azimuths are clockwise from north, and the endpoint heading
+is forward along the path. The direct solve accepts signed distances. Path
+interpolation returns height zero on the chosen ellipsoid; it follows surface
+distance rather than a chord or an average of geocentric latitudes. Coincident
+and exactly antipodal routes can have nonunique headings; the solver selects a
+canonical GeographicLib path. Triaxial bodies need another surface model.
+
+`Ellipsoid::curvature_radii`, the individual radius helpers, and
+`radius_along_azimuth_m` supply local meridional M and prime-vertical N radii and
+Euler's normal-section radius, 1/R = cos²(azimuth)/M + sin²(azimuth)/N. The WGS84
+shortcut `Geodetic::curvature_radii()` is infallible. These surface radii can
+inform a local sky-wave approximation; they do not supply a global propagation
+or ionospheric reflection model.
+
+Maidenhead cells expose angular bounds and dimensions in addition to their
+centre. `uniform_uncertainty()` assumes a uniform position in longitude/latitude
+inside the cell, reports angular standard deviations width/sqrt(12), and uses
+local WGS84 curvature for approximate east/north metre sizes. That estimate
+excludes height and survey errors; use the actual cell support for coarse or
+polar nonlinear inference. Locators do not encode height or a survey datum.
+The centre's height zero is a reference-surface placeholder. Pass a known
+**ellipsoidal** height to `centre_at_height`; do not relabel a directory's
+above-sea-level height as ellipsoidal. If geoid information is unavailable, keep
+that approximation explicit rather than treating it as a datum conversion.
+
+`[f64; 3]`, `Ecef` and `Vec3` have representation-only `From`/`Into` conversions.
+`Ecef - Ecef` returns a displacement `Vec3`; positions support vector translation,
+component addition and scalar multiplication/division. Component averaging is a
+Cartesian chord operation. `Geodetic::from_validated` gives prevalidated callers
+a plain constructor while preserving validation; invalid preconditions panic.
+Data ingestion should use the fallible `Geodetic::new`.
+
+Run `ground_paths` for Europe-to-Australia/New-Zealand distance comparisons,
+surface midpoints, locator uncertainty and local curvature. Unix/UTC ingestion,
+leap seconds, GMST/Earth orientation and a low-precision Sun provider remain
+separate follow-up work; these ground-path APIs require no time coordinates.
 
 ## Space and time across multiple bodies
 
@@ -134,5 +203,14 @@ Fusion uses inverse variance between declared independent Gaussian estimates. Wi
 ## Validation
 
 The tests cover geodetic round trips including polar/orbital/subsurface points, an external UTM control point, frame velocity/rotation, local precision beneath an interstellar parent, orbital energy, DEM/nodata parsing, gravity, radio/material/weather models, retarded event times, clock and phase signs, time-scale guards, coherent gain, trajectory discrimination, bounded refinement, and atlas evidence isolation. Estimation tests check analytic Kalman/RTS posteriors, full covariance validation, spin coupling, cross-axis updates, outlier/duplicate handling, transactional failures, and retarded timing derivatives. CI also runs the complete synthetic tracking example and its numerical assertions. The examples exercise modeling workflows without network access.
+
+Surface geodesics are checked against **20 official GeographicLib reference
+cases and a 100-row subset of Karney's published GeodTest data**, in both direct
+and inverse directions, plus published antipodal/polar regressions. This is not
+the complete 500,000-row dataset. [Fixture provenance, licenses and numerical
+tolerances](tests/data/geodesics/README.md) are retained with the data. Additional
+tests cover great-circle radius compatibility, lunar/Martian ellipsoids, path
+midpoints, curvature, all Maidenhead precision levels, polar/date-line bounds,
+uniform-cell uncertainty and Cartesian interoperability.
 
 MIT license. Crate import: `geoid_atlas`.
