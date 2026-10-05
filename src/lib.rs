@@ -24,15 +24,22 @@
 pub mod atlas;
 pub mod calibration;
 pub mod coordinates;
+pub mod echo;
+pub mod environment;
 pub mod estimation;
+pub mod formats;
 pub mod frames;
+pub mod fusion;
 pub mod gravity;
 pub mod interferometry;
 pub mod observability;
 pub mod raster;
+pub mod reference;
+pub mod relativity;
 pub mod rf;
 pub mod spacetime;
 pub mod time;
+pub mod units;
 
 use std::fmt;
 

@@ -18,3 +18,4 @@ jobs:
       - run: cargo run --locked --example terrain_atlas
       - run: cargo run --locked --example recursive_tracking
       - run: cargo run --locked --example kiwi_observability
+      - run: cargo run --locked --example polar_fusion

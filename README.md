@@ -11,6 +11,7 @@ cargo run --locked --example terrain_atlas
 cargo run --locked --example hour_array
 cargo run --locked --example recursive_tracking
 cargo run --locked --example kiwi_observability
+cargo run --locked --example polar_fusion
 ```
 
 Rust 1.99.0 is pinned in `rust-toolchain.toml`. All examples and tests work offline once the toolchain is installed.
@@ -31,8 +32,17 @@ Rust 1.99.0 is pinned in `rust-toolchain.toml`. All examples and tests work offl
 | `estimation` | Full 6×6 state covariance, spin-aware frame uncertainty transforms, white-acceleration prediction, scalar EKF/Joseph updates, innovation gating, unique observation IDs, retarded timing Jacobians, Rauch–Tung–Striebel historical smoothing |
 | `calibration` | Joint receiver frequency-scale/offset and transmitter-offset fitting, explicit reference gauge, sparse-cell rank checks, pivoted QR, conditional full parameter covariance |
 | `observability` | Clock/dispersive phase basis separability, explicit one-way/monostatic bandwidth cells, conditional nominal frequency ambiguity lattice |
+| `units` | Distinct length/angle/time/frequency/pressure/temperature/magnetic types, SI conversion, survey vs international feet, AU/parsecs |
+| `reference` | Explicit ellipsoidal/orthometric reference conversion through supplied geoids and frame transforms, arbitrary-body ENU poses, planetocentric coordinates |
+| `formats` | Strict static/dynamic Cartesian PROJ Helmert ingestion with conventions/rates, velocity/covariance transforms and exact matrix inverse; ESRI world-file ingestion |
+| `environment` | Magnetic/electron-density providers, vector frame adapters, polar field-aligned axes, bounded RK4 field lines, directed time-resolved TEC/Faraday integration, explicit synthetic dipole |
+| `fusion` | Arbitrary correlated Gaussian observable blocks in mixed units, photon-count response adapters, retarded-emission bearing likelihoods |
+| `echo` | Common-reception retarded multi-scatterer RF synthesis with explicit complex response models and calibrated channel reference |
+| `relativity` | Local flat-space Lorentz event/velocity and electromagnetic-field boosts, explicit origins and changed simultaneity, separate from rigid frame graphs |
 
 Angles at geodetic boundaries are degrees; rotations and phase are radians. Spatial coordinates are metres, velocities m/s, gravitational parameters m³/s². RF power APIs distinguish watts and dBm. `Geodetic::new(latitude, longitude, height)` uses ellipsoidal height; raster geographic axes are **longitude, latitude**. `Ecef` is Earth-fixed by convention; a generic ellipsoid returns the same Cartesian container in that body's fixed axes.
+
+[Extreme scenarios and input contracts](docs/extreme_scenarios.md) covers mixed terrestrial datums, Earth/Moon/Mars spacecraft chains, subsurface ice sounding, coherent asteroid echoes, interstellar precision, polar weather/GNSS/ionosonde fusion, X-ray transients, file formats and historical reprocessing. `polar_fusion` exercises a synthetic moving-frame multimodal likelihood with plasma and magnetic providers. Environmental parameters are conditioned inputs; a full joint environmental inversion needs a larger hypothesis/optimizer.
 
 ## Space and time across multiple bodies
 
