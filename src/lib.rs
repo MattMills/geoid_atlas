@@ -22,6 +22,8 @@
 //! ```
 
 pub mod atlas;
+#[cfg(any(feature = "proj-backend", feature = "gdal-backend"))]
+pub mod backends;
 pub mod calibration;
 pub mod coordinates;
 pub mod echo;
@@ -45,6 +47,7 @@ use std::fmt;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Error {
+    Backend { backend: String, message: String },
     InvalidInput(String),
     OutsideCoverage,
     NoData,
@@ -56,6 +59,7 @@ pub enum Error {
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::Backend { backend, message } => write!(f, "{backend} backend: {message}"),
             Self::InvalidInput(s) => write!(f, "invalid input: {s}"),
             Self::OutsideCoverage => f.write_str("point lies outside coverage"),
             Self::NoData => f.write_str("no data at point"),

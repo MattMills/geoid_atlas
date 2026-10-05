@@ -64,7 +64,7 @@ For plate motion, a transform's parameter reference epoch and the coordinate obs
 
 Decimal-year input is a separate convention from `Epoch`: it must match the published coefficient convention. Velocity rate conversion uses a Julian year (31,557,600 s). A civil decimal-year calendar, UTC leaps and barycentric time conversions require explicit adapters.
 
-`read_world_file` reads the six ESRI world-file lines in **A,D,B,E,C,F** order, locating pixel centres, including image rotation/shear. It supplies no CRS, units, height reference, pixels, intrinsics or aircraft pose. Orthorectified DRGs and raw camera pixels need different models. ESRI ASCII DEM ingestion is also implemented. Formats worth adding next are NTv2/NADCON displacement grids, GeoTIFF/COG georeferencing, WKT2/PROJJSON metadata, SPICE ephemeris/orientation adapters, and IONEX/RINEX/SINEX/IERS ingestion with strict epoch, reference and coverage handling. These formats are not currently decoded.
+`read_world_file` reads the six ESRI world-file lines in **A,D,B,E,C,F** order, locating pixel centres, including image rotation/shear. It supplies no CRS, units, height reference, pixels, intrinsics or aircraft pose. Orthorectified DRGs and raw camera pixels need different models. ESRI ASCII DEM ingestion is also implemented. [Optional native backends](native_backends.md) now delegate EPSG/WKT CRS definitions and installed displacement/geoid grids to PROJ, and georeferenced raster formats including GeoTIFF to GDAL. SPICE ephemeris/orientation adapters and IONEX/RINEX/SINEX/IERS ingestion with strict epoch, reference and coverage handling remain extension work.
 
 ## A polar fusion solve
 

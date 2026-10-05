@@ -19,3 +19,23 @@ jobs:
       - run: cargo run --locked --example recursive_tracking
       - run: cargo run --locked --example kiwi_observability
       - run: cargo run --locked --example polar_fusion
+  native:
+    runs-on: ubuntu-24.04
+    env:
+      PROJ_NETWORK: "OFF"
+      GEOID_TEST_PROJ_DATA_DIR: /usr/share/proj
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install native geospatial libraries
+        run: sudo apt-get update && sudo apt-get install -y libproj-dev proj-data libgdal-dev
+      - name: Install pinned tools
+        run: rustup toolchain install 1.99.0 --profile minimal --component rustfmt --component clippy
+      - run: cargo clippy --locked --all-targets --all-features -- -D warnings
+      - run: cargo test --locked --all-features --all-targets
+      - run: cargo test --locked --all-features --doc
+      - run: cargo test --locked --features proj-backend --test native_backends
+      - run: cargo test --locked --features gdal-backend --test native_backends
+      - run: cargo doc --locked --all-features --no-deps
+        env:
+          RUSTDOCFLAGS: "-D warnings"
+      - run: cargo run --locked --all-features --example native_geospatial

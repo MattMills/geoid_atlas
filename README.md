@@ -4,6 +4,8 @@ A Rust library for body-scoped geospatial data and time-dependent interferometri
 
 This implementation is a working, dependency-free modeling foundation. It includes local trajectory fitting, recursive state estimation with full covariance, historical smoothing, and synthetic examples. It does not ship measured global datasets, a precision astronomical ephemeris, or an operational real-time sensor pipeline.
 
+Optional `proj-backend` and `gdal-backend` features integrate authoritative native CRS transformations and georeferenced raster reading/warping. The default core needs no native GIS installation. [Native backend setup, precision contracts and licensing](docs/native_backends.md) explains the PROJ/GDAL requirements and permissive licenses.
+
 ```sh
 cargo test --locked --all-targets
 cargo test --locked --doc
@@ -39,6 +41,7 @@ Rust 1.99.0 is pinned in `rust-toolchain.toml`. All examples and tests work offl
 | `fusion` | Arbitrary correlated Gaussian observable blocks in mixed units, photon-count response adapters, retarded-emission bearing likelihoods |
 | `echo` | Common-reception retarded multi-scatterer RF synthesis with explicit complex response models and calibrated channel reference |
 | `relativity` | Local flat-space Lorentz event/velocity and electromagnetic-field boosts, explicit origins and changed simultaneity, separate from rigid frame graphs |
+| `backends` (optional) | PROJ EPSG/WKT/compound CRS transforms with strict offline grid policy and operation reports; GDAL windowed raster ingestion, masked/scaled data and exact-transform GeoTIFF warping |
 
 Angles at geodetic boundaries are degrees; rotations and phase are radians. Spatial coordinates are metres, velocities m/s, gravitational parameters m³/s². RF power APIs distinguish watts and dBm. `Geodetic::new(latitude, longitude, height)` uses ellipsoidal height; raster geographic axes are **longitude, latitude**. `Ecef` is Earth-fixed by convention; a generic ellipsoid returns the same Cartesian container in that body's fixed axes.
 
@@ -120,7 +123,7 @@ DEM elevation is either ellipsoidal or orthometric. Convert explicitly using **h
 
 Fusion uses inverse variance between declared independent Gaussian estimates. Within the same error group, only the smallest-uncertainty estimate contributes, and redundant source IDs are reported. Disagreement inflates formal uncertainty and produces a reduced chi-squared diagnostic. Systematic bias, unknown correlation, and non-Gaussian evidence need a custom model; metadata alone cannot establish trust. Scalar raster uncertainty is supplied by the source adapter, not derived from pixel interpolation.
 
-`ScalarField::sample` includes height and epoch, so adapters can represent local material volumes or time-dependent atmospheric fields as well as 2D tiles. Adding weather fields does not automatically ray-trace them; use them to construct a local propagation model. GeoTIFF/GDAL, DRG file decoding, tiled catalogs, spherical-harmonic gravity files, planetary SPICE kernels, and live feed adapters are extension work. DRG imagery is currently supplied as already georeferenced RGB data; DEM files can be parsed from ESRI ASCII directly.
+`ScalarField::sample` includes height and epoch, so adapters can represent local material volumes or time-dependent atmospheric fields as well as 2D tiles. Adding weather fields does not automatically ray-trace them; use them to construct a local propagation model. Optional GDAL reads georeferenced files including GeoTIFF, and a PROJ-validated window can enter the core atlas after an explicit CRS match or warp. RGB assembly/color management, tiled catalogs, spherical-harmonic gravity files, planetary SPICE kernels, and live feed adapters remain extension work. DEM files can also be parsed from ESRI ASCII directly.
 
 ## Numerical and physical limits
 

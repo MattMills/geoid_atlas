@@ -10,3 +10,12 @@ name = "geoid_atlas"
 path = "src/lib.rs"
 
 [dependencies]
+
+[features]
+default = []
+proj-backend = []
+gdal-backend = []
+
+[[example]]
+name = "native_geospatial"
+required-features = ["proj-backend", "gdal-backend"]
