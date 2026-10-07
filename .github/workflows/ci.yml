@@ -1,16 +1,36 @@
 name: Rust
-on: [push, pull_request]
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+# Jobs run on the self-hosted hippo runners; pull requests from forks run on GitHub-hosted
+# ubuntu-latest instead, so outside code never runs on hippo. The runners' job-started hook
+# cleans the workspace but keeps target/, so checkouts use `clean: false` and each build is
+# incremental against that runner's previous one; ~/.cargo persists on the runner too.
 jobs:
   check:
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || fromJSON('["self-hosted","hippo"]') }}
+    timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
+        with:
+          clean: false
+      # The toolchain pinned in rust-toolchain.toml.
       - name: Install pinned tools
-        run: rustup toolchain install 1.99.0 --profile minimal --component rustfmt --component clippy
-      - run: cargo fmt --check
+        uses: dtolnay/rust-toolchain@1.99.0
+        with:
+          components: rustfmt, clippy
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
+      - run: cargo fmt --all --check
       - run: cargo clippy --locked --all-targets -- -D warnings
-      - run: cargo test --locked --all-targets
-      - run: cargo test --locked --doc
+      - run: cargo nextest run --workspace --locked --all-targets --no-fail-fast
+      - run: cargo test --workspace --locked --doc
       - run: cargo doc --locked --no-deps
         env:
           RUSTDOCFLAGS: "-D warnings"
